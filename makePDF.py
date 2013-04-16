@@ -42,6 +42,7 @@ class CmdThread ( threading.Thread ):
 	def run ( self ):
 		print "Welcome to thread " + self.getName()
 		cmd = self.caller.make_cmd + [self.caller.file_name]
+		cmd = map(lambda s : s.encode(sys.getfilesystemencoding()), cmd)
 		self.caller.output("[Compiling " + self.caller.file_name + "]")
 		if DEBUG:
 			print cmd.encode('UTF-8')
