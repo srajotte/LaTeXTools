@@ -32,6 +32,9 @@ class jump_to_pdfCommand(sublime_plugin.TextCommand):
 		# need to invoke the command. And if it is not visible, the natural way to just bring up the
 		# window without syncing is by using the system's window management shortcuts.
 		# As for focusing, we honor the toggles / prefs.
+		if "from_keybinding" not in args:
+			args["from_keybinding"] = False
+		
 		from_keybinding = args["from_keybinding"]
 		if from_keybinding:
 			forward_sync = True
