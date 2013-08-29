@@ -248,7 +248,7 @@ class make_pdfCommand(sublime_plugin.WindowCommand):
 					break
 		if self.engine != 'pdflatex': # Since pdflatex is standard, we do not output a msg. for it.
 			self.output("Using engine " + self.engine + "\n")
-		self.make_cmd[3] = self.make_cmd[3].replace("%E", self.engine)
+		self.make_cmd = map(lambda arg: arg.replace("%E", self.engine), self.make_cmd)
 		self.output_view.settings().set("result_file_regex", file_regex)
 
 		if view.is_dirty():
