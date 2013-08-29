@@ -1,10 +1,22 @@
-import sublime, sublime_plugin
+# ST2/ST3 compat
+from __future__ import print_function 
+import sublime
+if sublime.version() < '3000':
+    # we are on ST2 and Python 2.X
+	_ST3 = False
+	import getTeXRoot
+	import parseTeXlog
+else:
+	_ST3 = True
+	from . import getTeXRoot
+	from . import parseTeXlog
+
+import sublime_plugin
 import sys, os, os.path, platform, threading, functools
 import subprocess
 import types
 import re
-import getTeXRoot
-import parseTeXlog
+import codecs
 
 DEBUG = False
 
@@ -40,19 +52,24 @@ class CmdThread ( threading.Thread ):
 		threading.Thread.__init__ ( self )
 
 	def run ( self ):
-		print "Welcome to thread " + self.getName()
+		print ("Welcome to thread " + self.getName())
 		cmd = self.caller.make_cmd + [self.caller.file_name]
 		cmd = map(lambda s : s.encode(sys.getfilesystemencoding()), cmd)
 		self.caller.output("[Compiling " + self.caller.file_name + "]")
 		if DEBUG:
-			print cmd.encode('UTF-8')
+			print (cmd.encode('UTF-8'))
 
 		# Handle path; copied from exec.py
 		if self.caller.path:
 			old_path = os.environ["PATH"]
 			# The user decides in the build system  whether he wants to append $PATH
 			# or tuck it at the front: "$PATH;C:\\new\\path", "C:\\new\\path;$PATH"
-			os.environ["PATH"] = os.path.expandvars(self.caller.path).encode(sys.getfilesystemencoding())
+			# Handle differently in Python 2 and 3, to be safe:
+			if not _ST3:
+				os.environ["PATH"] = os.path.expandvars(self.caller.path).encode(sys.getfilesystemencoding())
+			else:
+				os.environ["PATH"] = os.path.expandvars(self.caller.path)
+
 
 		try:
 			if platform.system() == "Windows":
@@ -86,14 +103,14 @@ class CmdThread ( threading.Thread ):
 		# Since we set self.caller.proc above, if it is None, the process must have been killed.
 		# TODO: clean up?
 		if not self.caller.proc:
-			print proc.returncode
+			print (proc.returncode)
 			self.caller.output("\n\n[User terminated compilation process]\n")
 			self.caller.finish(False)	# We kill, so won't switch to PDF anyway
 			return
 		# Here we are done cleanly:
 		self.caller.proc = None
-		print "Finished normally"
-		print proc.returncode
+		print ("Finished normally")
+		print (proc.returncode)
 
 		# this is a conundrum. We used (ST1) to open in binary mode ('rb') to avoid
 		# issues, but maybe we just need to decode?
@@ -118,6 +135,7 @@ class CmdThread ( threading.Thread ):
 		# However, we must still decode the resulting lines using the relevant encoding.
 		# 121101 -- moved splitting and decoding logic to parseTeXlog, where it belongs.
 		
+		# Note to self: need to think whether we don't want to codecs.open this, too...
 		data = open(self.caller.tex_base + ".log", 'rb').read()		
 
 		errors = []
@@ -209,10 +227,32 @@ class make_pdfCommand(sublime_plugin.WindowCommand):
 
 		# Get parameters from sublime-build file:
 		self.make_cmd = cmd
+
+		# I actually think self.file_name is it already
+		self.engine = 'pdflatex' # Standard pdflatex
+		for line in codecs.open(self.file_name, "r", "UTF-8", "ignore").readlines():
+			if not line.startswith('%'):
+				break
+			else:
+				# We have a comment match; check for a TS-program match
+				mroot = re.match(r"%\s*!TEX\s+(?:TS-)?program *= *(xelatex|lualatex|pdflatex)\s*$",line)
+				if mroot:
+					# Sanity checks
+					if "texify" == self.make_cmd[0]:
+						sublime.error_message("Sorry, cannot select engine using a %!TEX program directive on MikTeX.")
+						return 
+					if not ("$pdflatex = '%E" in self.make_cmd[3]):
+						sublime.error_message("You are using a custom LaTeX.sublime-build file (in User maybe?). Cannot select engine using a %!TEX program directive.")
+						return
+					self.engine = mroot.group(1)
+					break
+		if self.engine != 'pdflatex': # Since pdflatex is standard, we do not output a msg. for it.
+			self.output("Using engine " + self.engine + "\n")
+		self.make_cmd[3] = self.make_cmd[3].replace("%E", self.engine)
 		self.output_view.settings().set("result_file_regex", file_regex)
 
 		if view.is_dirty():
-			print "saving..."
+			print ("saving...")
 			view.run_command('save') # call this on view, not self.window
 		
 		if self.tex_ext.upper() != ".TEX":
@@ -229,11 +269,11 @@ class make_pdfCommand(sublime_plugin.WindowCommand):
 		else:
 			sublime.error_message("Platform as yet unsupported. Sorry!")
 			return	
-		print self.make_cmd + [self.file_name]
+		print (self.make_cmd + [self.file_name])
 		
 		os.chdir(tex_dir)
 		CmdThread(self).start()
-		print threading.active_count()
+		print (threading.active_count())
 
 
 	# Threading headaches :-)
@@ -259,21 +299,27 @@ class make_pdfCommand(sublime_plugin.WindowCommand):
 
 		# decoding in thread, so we can pass coded and decoded data
 		# handle both lists and strings
-		str = data if isinstance(data, types.StringTypes) else "\n".join(data)
+		# Need different handling for python 2 and 3
+		if not _ST3:
+			strdata = data if isinstance(data, types.StringTypes) else "\n".join(data)
+		else:
+			strdata = data if isinstance(data, str) else "\n".join(data)
 
 		# Normalize newlines, Sublime Text always uses a single \n separator
 		# in memory.
-		str = str.replace('\r\n', '\n').replace('\r', '\n')
+		strdata = strdata.replace('\r\n', '\n').replace('\r', '\n')
 
 		selection_was_at_end = (len(self.output_view.sel()) == 1
 		    and self.output_view.sel()[0]
 		        == sublime.Region(self.output_view.size()))
 		self.output_view.set_read_only(False)
-		edit = self.output_view.begin_edit()
-		self.output_view.insert(edit, self.output_view.size(), str)
-		if selection_was_at_end:
-		    self.output_view.show(self.output_view.size())
-		self.output_view.end_edit(edit)
+		# Move this to a TextCommand for compatibility with ST3
+		self.output_view.run_command("do_output_edit", {"data": strdata, "selection_was_at_end": selection_was_at_end})
+		# edit = self.output_view.begin_edit()
+		# self.output_view.insert(edit, self.output_view.size(), strdata)
+		# if selection_was_at_end:
+		#     self.output_view.show(self.output_view.size())
+		# self.output_view.end_edit(edit)
 		self.output_view.set_read_only(True)	
 
 	# Also from exec.py
@@ -284,11 +330,27 @@ class make_pdfCommand(sublime_plugin.WindowCommand):
 		sublime.set_timeout(functools.partial(self.do_finish, can_switch_to_pdf), 0)
 
 	def do_finish(self, can_switch_to_pdf):
-		edit = self.output_view.begin_edit()
-		self.output_view.sel().clear()
-		reg = sublime.Region(0)
-		self.output_view.sel().add(reg)
-		self.output_view.show(reg) # scroll to top
-		self.output_view.end_edit(edit)
+		# Move to TextCommand for compatibility with ST3
+		# edit = self.output_view.begin_edit()
+		# self.output_view.sel().clear()
+		# reg = sublime.Region(0)
+		# self.output_view.sel().add(reg)
+		# self.output_view.show(reg) # scroll to top
+		# self.output_view.end_edit(edit)
+		self.output_view.run_command("do_finish_edit")
 		if can_switch_to_pdf:
 			self.window.active_view().run_command("jump_to_pdf", {"from_keybinding": False})
+
+
+class DoOutputEditCommand(sublime_plugin.TextCommand):
+    def run(self, edit, data, selection_was_at_end):
+        self.view.insert(edit, self.view.size(), data)
+        if selection_was_at_end:
+            self.view.show(self.view.size())
+
+class DoFinishEditCommand(sublime_plugin.TextCommand):
+    def run(self, edit):
+        self.view.sel().clear()
+        reg = sublime.Region(0)
+        self.view.sel().add(reg)
+        self.view.show(reg)
