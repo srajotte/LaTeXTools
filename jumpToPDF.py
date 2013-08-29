@@ -11,6 +11,7 @@ else:
 
 
 import sublime_plugin, os.path, subprocess, time
+import sys
 
 # Jump to current line in PDF file
 # NOTE: must be called with {"from_keybinding": <boolean>} as arg
