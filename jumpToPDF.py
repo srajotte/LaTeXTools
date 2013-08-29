@@ -53,6 +53,9 @@ class jump_to_pdfCommand(sublime_plugin.TextCommand):
 		# HACK? It seems we get better results incrementing line
 		line += 1
 
+		pdffile = pdffile.encode(sys.getfilesystemencoding())
+		srcfile = srcfile.encode(sys.getfilesystemencoding())
+
 		# Query view settings to see if we need to keep focus or let the PDF viewer grab it
 		# By default, we respect settings in Preferences
 		
