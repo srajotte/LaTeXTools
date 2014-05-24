@@ -19,9 +19,15 @@ DEFAULT_COMMAND_LATEXMK = ["latexmk", "-cd",
 				"-e", "$pdflatex = '%E -interaction=nonstopmode -synctex=1 %S %O'",
 				"-f", "-pdf"]
 
-DEFAULT_COMMAND_WINDOWS_MIKTEX = ["texify", 
+DEFAULT_COMMAND_WINDOWS_MIKTEX = ["texify",
 					"-b", "-p",
+					"--engine=%E",
 					"--tex-option=\"--synctex=1\""]
+
+TEXIFY_ENGINE_MAP = {
+		'pdflatex' : 'pdftex', 
+		'xelatex' : 'xetex', 
+		'lualatex' : 'luatex' }
 
 
 #----------------------------------------------------------------
@@ -80,19 +86,25 @@ class TraditionalBuilder(PdfBuilder):
 				# We have a comment match; check for a TS-program match
 				mroot = re.match(r"%\s*!TEX\s+(?:TS-)?program *= *(xelatex|lualatex|pdflatex)\s*$",line)
 				if mroot:
+					CUSTOM_BUILD_ERROR = "You are using a custom build command.\n"\
+						"Cannot select engine using a %!TEX program directive.\n"
 					# Sanity checks
 					if "texify" == cmd[0]:
-						sublime.error_message("Sorry, cannot select engine using a %!TEX program directive on MikTeX.\n")
-						yield("", "Could not compile.")
-					if not re.match(r"\$pdflatex\s?=\s?'%E", cmd[3]): # fixup blanks (linux)
-						sublime.error_message("You are using a custom build command.\n"\
-							"Cannot select engine using a %!TEX program directive.\n")
-						yield("", "Could not compile.")
+						if not re.match(r"--engine=%E", cmd[3]):
+							sublime.error_message(CUSTOM_BUILD_ERROR)
+							yield("", "Could not compile.")
+					else:
+						if not re.match(r"\$pdflatex\s?=\s?'%E", cmd[3]): # fixup blanks (linux)
+							sublime.error_message(CUSTOM_BUILD_ERROR)
+							yield("", "Could not compile.")
 					engine = mroot.group(1)
 					break
 		if engine != self.engine:
 			self.display("Engine: " + self.engine + " -> " + engine + ". ")
-			
+
+		if "texify" == cmd[0]:
+			engine = TEXIFY_ENGINE_MAP[engine]
+
 		cmd[3] = cmd[3].replace("%E", engine)
 
 		# texify wants the .tex extension; latexmk doesn't care either way
